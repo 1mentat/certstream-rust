@@ -5,16 +5,30 @@ use std::str;
 use std::{thread, time};
 
 use clap::{Parser};
-use shellexpand;
+use json_types::CertStream;
+// use shellexpand;
 
-use itertools::{Itertools}; // for iterating over the array of domain strings
+// use itertools::{Itertools}; // for iterating over the array of domain strings
 
 use url::{Url}; // tokio* uses real URLs
 use tokio::io::{Result}; 
 use tokio_tungstenite::{connect_async}; 
 use futures_util::{StreamExt}; 
 
-use rocksdb::{DB, Options}; // our database
+// rocksdb
+// use rocksdb::{DB, Options};
+
+// deltalake db
+use deltalake::action::*;
+use deltalake::arrow::array::*;
+use deltalake::arrow::record_batch::RecordBatch;
+use deltalake::writer::{DeltaWriter, RecordBatchWriter};
+use deltalake::*;
+
+use object_store::path::Path;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 // JSON record types for CertStream messages
 mod json_types;
@@ -33,8 +47,8 @@ macro_rules! assert_types {
 struct Args {
 
   // RocksDB path
-  #[clap(short, long)]
-  dbpath: String,
+  // #[clap(short, long)]
+  // dbpath: String,
 
   // server to use (defaults to CertStream's)
   #[clap(short, long, default_value_t = String::from(CERTSTREAM_URL))]
@@ -52,7 +66,7 @@ async fn main() -> Result<()> {
 
   let args = Args::parse();
 
-  let path = shellexpand::full(&args.dbpath).unwrap().to_string();
+  // let path = shellexpand::full(&args.dbpath).unwrap().to_string();
 
   // may want todo someting on ^C
   ctrlc::set_handler(move || {
@@ -62,12 +76,31 @@ async fn main() -> Result<()> {
   loop { // server is likely to drop connections
     
     // Setup RocksDB for writing
-    let mut options = Options::default();
-    options.set_error_if_exists(false);
-    options.create_if_missing(true);
-    options.create_missing_column_families(true);
+    // let mut options = Options::default();
+    // options.set_error_if_exists(false);
+    // options.create_if_missing(true);
+    // options.create_missing_column_families(true);
     
-    let db = DB::open(&options, path.to_owned()).unwrap();
+    //let batch_size = 20000;
+    //let mut records = vec![];
+
+    let records_vec = Arc::new(Mutex::new(Vec::<String>::new()));
+
+    let table_uri = std::env::var("TABLE_URI").unwrap();
+
+    let table_path = Path::from(table_uri.as_ref());
+
+    let maybe_table = deltalake::open_table(&table_path).await;
+    let mut table = match maybe_table {
+        Ok(table) => table,
+        Err(DeltaTableError::NotATable(_)) => {
+            create_initialized_table(&table_path).await
+        }
+        Err(err) => Err(err).unwrap(),
+    };
+
+    let mut writer =
+        RecordBatchWriter::for_table(&table).expect("Failed to make RecordBatchWriter");
     
     let certstream_url = Url::parse(args.server.as_str()).unwrap(); // we need an actual Url type
     
@@ -88,13 +121,8 @@ async fn main() -> Result<()> {
               match serde_json::from_str(&json_data) { // if deserialization works
                 Ok(record) => { // then derserialize JSON
                   
-                  assert_types! { record: json_types::CertStream } 
-                  
-                  for dom in record.data.leaf_cert.all_domains.into_iter().unique() {
-                    // CertStream doms shld already be lowercase but making it explicit
-                    db.put(dom.to_ascii_lowercase(), "").unwrap(); 
-                  }
-                                                                
+                  assert_types! { record: json_types::CertStream }
+                  records_vec.lock().unwrap().push(serde_json::to_string(&record).unwrap())
                 }
                 
                 Err(err) => { eprintln!("{}", err) }
@@ -111,15 +139,71 @@ async fn main() -> Result<()> {
     });
     
     read_future.await;
+
+    let batch = convert_to_batch(&table,records_vec.lock().unwrap().to_vec());
+
+    writer.write(batch).await.unwrap();
     
     eprintln!("Server disconnected…waiting {} seconds and retrying…", args.patience);
 
     // kill the DB object and re-open since it's a fast operation
-    let _ = DB::destroy(&Options::default(), path.to_owned());
+    // let _ = DB::destroy(&Options::default(), path.to_owned());
+
+    let _ = writer
+    .flush_and_commit(&mut table)
+    .await
+    .expect("Failed to flush write");
 
     // wait for a bit to be kind to the server
     thread::sleep(time::Duration::from_secs(args.patience));
     
   }
   
+}
+
+fn convert_to_batch(table: &DeltaTable, records: Vec<std::string::String>) -> RecordBatch {
+  let metadata = table
+      .get_metadata()
+      .expect("Failed to get metadata for the table");
+  let arrow_schema = <deltalake::arrow::datatypes::Schema as TryFrom<&Schema>>::try_from(
+      &metadata.schema.clone(),
+  )
+  .expect("Failed to convert to arrow schema");
+  let arrow_schema_ref = Arc::new(arrow_schema);
+
+  let string_refs: Vec<&str> = records.iter().map(|r| &r[..]).collect();
+
+  let arrow_array: Vec<Arc<dyn Array>> = vec![
+      Arc::new(StringArray::from(string_refs)),
+  ];
+
+  RecordBatch::try_new(arrow_schema_ref, arrow_array).expect("Failed to create RecordBatch")
+}
+
+async fn create_initialized_table(table_path: &Path) -> DeltaTable {
+  let mut table = DeltaTableBuilder::from_uri(table_path).build().unwrap();
+  let table_schema = CertStream::raw_schema();
+  let mut commit_info = serde_json::Map::<String, serde_json::Value>::new();
+  commit_info.insert(
+      "operation".to_string(),
+      serde_json::Value::String("CREATE TABLE".to_string()),
+  );
+  commit_info.insert(
+      "userName".to_string(),
+      serde_json::Value::String("test user".to_string()),
+  );
+
+  let protocol = Protocol {
+      min_reader_version: 1,
+      min_writer_version: 1,
+  };
+
+  let metadata = DeltaTableMetaData::new(None, None, None, table_schema, vec![], HashMap::new());
+
+  table
+      .create(metadata, protocol, Some(commit_info), None)
+      .await
+      .unwrap();
+
+  table
 }

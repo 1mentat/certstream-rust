@@ -25,7 +25,9 @@ async-stream = "0.3.3"
 futures-util = "0.3.21"
 ctrlc = "3.2.2" # graceful exits  
 itertools = "0.10.3" # vector iteration
-rocksdb = { version = "0.18.0", features = ["lz4"] } # storage for domains
+rocksdb = { version = "0.18.0", default_features = false, features = ["lz4"] } # storage for domains
+deltalake = "0.6.0"
+object_store = "0.5.3"
 # JSON tooling
 serde = "1.0.137"
 serde_derive = "1.0.137"
