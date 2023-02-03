@@ -1,13 +1,13 @@
 [package]
 name = "certstream-rust"
-authors = [ "boB Rudis (@hrbrmstr)" ]
-description = "Extract all domains from a CertStream-compatible CTL websockets server to RocksDB"
+authors = [ "boB Rudis (@hrbrmstr)", "James Burns (@1mentat)" ]
+description = "Extract all domains from a CertStream-compatible CTL websockets server to Delta Tables"
 license = "MIT"
 homepage = "https://github.com/hrbrmstr/certstream-rust"
 repository = "https://github.com/hrbrmstr/certstream-rust"
-keywords = [ "certstream", "rockdsb", "certificate" ]
+keywords = [ "certstream", "deltalake", "certificate" ]
 readme = "README.md"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
@@ -25,7 +25,6 @@ async-stream = "0.3.3"
 futures-util = "0.3.21"
 ctrlc = "3.2.2" # graceful exits  
 itertools = "0.10.3" # vector iteration
-rocksdb = { version = "0.18.0", default_features = false, features = ["lz4"] } # storage for domains
 deltalake = "0.6.0"
 object_store = "0.5.3"
 # JSON tooling
@@ -36,7 +35,3 @@ serde_json = "1.0.81"
 [[bin]]
 path = "src/certstream/main.rs"
 name = "certstream"
-
-[[bin]]
-path = "src/dumpdoms/main.rs"
-name = "dumpdoms"

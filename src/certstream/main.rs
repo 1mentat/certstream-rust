@@ -6,17 +6,11 @@ use std::{thread, time};
 
 use clap::{Parser};
 use json_types::CertStream;
-// use shellexpand;
-
-// use itertools::{Itertools}; // for iterating over the array of domain strings
 
 use url::{Url}; // tokio* uses real URLs
 use tokio::io::{Result}; 
 use tokio_tungstenite::{connect_async}; 
 use futures_util::{StreamExt}; 
-
-// rocksdb
-// use rocksdb::{DB, Options};
 
 // deltalake db
 use deltalake::action::*;
@@ -46,10 +40,6 @@ macro_rules! assert_types {
 #[clap(author, version, about, long_about = None)]
 struct Args {
 
-  // RocksDB path
-  // #[clap(short, long)]
-  // dbpath: String,
-
   // server to use (defaults to CertStream's)
   #[clap(short, long, default_value_t = String::from(CERTSTREAM_URL))]
   server: String,
@@ -66,21 +56,12 @@ async fn main() -> Result<()> {
 
   let args = Args::parse();
 
-  // let path = shellexpand::full(&args.dbpath).unwrap().to_string();
-
   // may want todo someting on ^C
   ctrlc::set_handler(move || {
     process::exit(0x0000);
   }).expect("Error setting Ctrl-C handler");
 
   loop { // server is likely to drop connections
-    
-    // Setup RocksDB for writing
-    // let mut options = Options::default();
-    // options.set_error_if_exists(false);
-    // options.create_if_missing(true);
-    // options.create_missing_column_families(true);
-    
     //let batch_size = 20000;
     //let mut records = vec![];
 
@@ -145,9 +126,6 @@ async fn main() -> Result<()> {
     writer.write(batch).await.unwrap();
     
     eprintln!("Server disconnected…waiting {} seconds and retrying…", args.patience);
-
-    // kill the DB object and re-open since it's a fast operation
-    // let _ = DB::destroy(&Options::default(), path.to_owned());
 
     let _ = writer
     .flush_and_commit(&mut table)
