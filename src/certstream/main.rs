@@ -2,7 +2,8 @@
 
 use std::process;
 use std::str;
-use std::{thread, time};
+// Use async sleep to avoid blocking the runtime
+use tokio::time::{sleep, Duration};
 
 use clap::{Parser};
 use json_types::CertStream;
@@ -133,7 +134,7 @@ async fn main() -> Result<()> {
     .expect("Failed to flush write");
 
     // wait for a bit to be kind to the server
-    thread::sleep(time::Duration::from_secs(args.patience));
+    sleep(Duration::from_secs(args.patience)).await;
     
   }
   
