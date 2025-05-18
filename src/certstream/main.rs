@@ -30,7 +30,7 @@ mod json_types;
 const CERTSTREAM_URL: &'static str = "wss://certstream.calidog.io/";
 const WAIT_AFTER_DISCONNECT: u64 =  5; // seconds
 
-// in the deserialization part, the type of the returnd, parsed JSON gets wonky
+// in the deserialization part, the type of the returned, parsed JSON gets wonky
 macro_rules! assert_types {
   ($($var:ident : $ty:ty),*) => { $(let _: & $ty = & $var;)* }
 }
@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
 
   let args = Args::parse();
 
-  // may want todo someting on ^C
+  // may want todo something on ^C
   ctrlc::set_handler(move || {
     process::exit(0x0000);
   }).expect("Error setting Ctrl-C handler");
@@ -88,7 +88,7 @@ async fn main() -> Result<()> {
     // connect to CertStream's encrypted websocket interface 
     let (wss_stream, _response) = connect_async(certstream_url).await.expect("Failed to connect");
     
-    // the WebSocketStrem has sink/stream (read/srite) components; this is how we get to them
+    // the WebSocketStream has sink/stream (read/write) components; this is how we get to them
     let (mut _write, read) = wss_stream.split();
     
     // process messages as they come in
